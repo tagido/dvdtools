@@ -14,6 +14,10 @@
 
 #include "common.h"
 
+//#define AV_LOG_C(x) 0
+
+#define DVD_ASSERT(expression)
+
 typedef struct PutBitContext {
     uint32_t bit_buf;
     int bit_left;
@@ -32,6 +36,11 @@ typedef struct PutBitContext {
                _next, _pos);                                            \
         avio_seek(a, b, c);                                             \
     } while (0)
+
+
+// Options
+int force_video_ts_n_titles = 3;
+
 
 static inline void init_put_bits(PutBitContext *s, uint8_t *buffer,
                                  int buffer_size)
@@ -755,6 +764,8 @@ static int ifo_write_vts(IFOContext *ifo)
     AVIOContext *pb  = ifo->pb;
     vtsi_mat_t *vtsi = ifo->i->vtsi_mat;
     int i;
+    
+    printf("ifo_write_vts\n");
 
     avio_printf(ifo->pb, "%s", "DVDVIDEO-VTS");
 
@@ -1159,6 +1170,9 @@ static void update_values(IFOContext *ifo,
             ifo->i->vtsi_mat->vtsm_vobs = 0;
 
         ifo->i->vtsi_mat->vtstt_vobs = ifo_sector + menu_sector;
+		
+		// TMP: TODO arg
+		ifo->i->vtsi_mat->vtstt_vobs = 2048;
     }
 
     if (ifo->i->vmgi_mat) {
@@ -1291,6 +1305,30 @@ void patch_vobu_admap(vobu_admap_t *vobu_admap, VOBU *vobus, int nb_vobus)
     }
 }
 
+void patch_title_video_attrs(IFOContext *ifo)
+{
+    vtsi_mat_t *vtsi = ifo->i->vtsi_mat;
+    
+    vtsi->vts_video_attr.mpeg_version = 0; // MPEG-1
+    vtsi->vts_video_attr.video_format = 1; // PAL
+    vtsi->vts_video_attr.picture_size = 3;
+    
+    
+    /* Available video fields:
+    put_bits(&s, 2, attr->mpeg_version);
+    put_bits(&s, 2, attr->video_format);
+    put_bits(&s, 2, attr->display_aspect_ratio);
+    put_bits(&s, 2, attr->permitted_df);
+    put_bits(&s, 1, attr->line21_cc_1);
+    put_bits(&s, 1, attr->line21_cc_2);
+    put_bits(&s, 1, attr->unknown1);
+    put_bits(&s, 1, attr->bit_rate);
+    put_bits(&s, 2, attr->picture_size);
+    put_bits(&s, 1, attr->letterboxed);
+    put_bits(&s, 1, attr->film_mode);
+    */
+}
+
 int fix_title(IFOContext *ifo, const char* path, int idx)
 {
     char title[1024];
@@ -1314,8 +1352,31 @@ int fix_title(IFOContext *ifo, const char* path, int idx)
         patch_vobu_admap(ifo->i->vts_vobu_admap, vobus, nb_vobus);
 
     patch_pgcit(ifo->i->vts_pgcit, cells, nb_cells);
+    
+    patch_title_video_attrs(ifo);
 
     return 0;
+}
+
+void patch_vmg(IFOContext *ifo)
+{
+	printf("patch_vmg:01\n");fflush(stdout);
+	printf("patch_vmg:01b ifo=%p\n",ifo);fflush(stdout);
+	printf("patch_vmg:01b ifo-i=%p\n",ifo->i);fflush(stdout);
+	if (!ifo->i) {
+		printf("FAILED patch_vmg:01b ifo-i=%p is null\n",ifo->i);fflush(stdout);
+		exit(-1);
+	}
+
+    if (force_video_ts_n_titles) {
+        ifo->i->tt_srpt->nr_of_srpts = force_video_ts_n_titles;
+		
+		vm_cmd_t new_cmds = {0x30,0x02 ,0x00 ,0x00 ,0x00 ,0x01 ,0x00 ,0x00};
+		ifo->i->pgci_ut->lu[0].pgcit[0].pgci_srp[0].pgc[0].command_tbl[0].pre_cmds[0] =  new_cmds;
+
+    }
+	
+ 	printf("patch_vmg:02\n");fflush(stdout);
 }
 
 int fix_menu(IFOContext *ifo, const char *path, int idx)
@@ -1326,10 +1387,21 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
     CELL *cells;
     int nb_cells;
 
+	printf("fix_menu:01\n");fflush(stdout);
+	
     if (idx)
-        snprintf(menu, sizeof(menu), "%s/VIDEO_TS/VTS_%02d_0.VOB", path, idx);
+        snprintf(menu, sizeof(menu), "%s/VIDEO_TS/VTS_%02d_1.VOB", path, idx);
     else
         snprintf(menu, sizeof(menu), "%s/VIDEO_TS/VIDEO_TS.VOB", path);
+
+	printf("fix_menu:02\n");fflush(stdout);
+	
+ 
+    if (!idx) {
+        patch_vmg(ifo);
+    }
+        
+	printf("fix_menu:03\n");fflush(stdout);
 
     if ((nb_vobus = populate_vobs(&vobus, menu)) < 0)
         return -1;
@@ -1348,6 +1420,7 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
     return 0;
 }
 
+
 int main(int argc, char **argv)
 {
     IFOContext *ifo = NULL;
@@ -1355,6 +1428,10 @@ int main(int argc, char **argv)
     int ret, idx = 0;
     const char *src_path, *dst_path;
 
+	printf("rewrite_ifo...\n");fflush(stdout);
+	
+	printf("1\n");fflush(stdout);
+	
     av_register_all();
 
     if (argc < 4)
@@ -1364,34 +1441,63 @@ int main(int argc, char **argv)
     dst_path = argv[2];
     idx = atoi(argv[3]);
 
+	printf("2\n");fflush(stdout);
+	
     ifo_open(&ifo, dst_path, idx, AVIO_FLAG_READ_WRITE);
+	
+	printf("3\n");fflush(stdout);
+	
 
     dvd = DVDOpen(src_path);
+	
+	printf("4 dvd=%p\n", dvd);fflush(stdout);
 
     ifo->ifo_size = ifo_size(src_path, idx);
+	
+	printf("4b ifo->ifo_size=%d\n", ifo->ifo_size);fflush(stdout);
 
     ifo->i = ifoOpen(dvd, idx);
+	
+	printf("4b ifo->i=%p\n", ifo->i);fflush(stdout);
 
     if (idx) {
+		
+		printf("5\n");fflush(stdout);
+		
         ret = fix_title(ifo, dst_path, idx);
         if (ret < 0)
             return ret;
     }
-
+	
+	printf("6\n");fflush(stdout);
+		
     // menu files can be missing
     fix_menu(ifo, dst_path, idx);
 
+	printf("7\n");fflush(stdout);
+		
+	
     ret = ifo_write(ifo, idx);
     if (ret < 0)
         return ret;
 
+	printf("8\n");fflush(stdout);
+		
     // now we know for sure how big the ifo is.
     if (!idx)
         patch_tt_srpt(ifo, dst_path);
 
+	printf("9\n");fflush(stdout);
+		
+	
     update_values(ifo, dst_path, idx);
 
+	printf("10\n");fflush(stdout);
+		
+	
     ret = ifo_open_internal(&ifo->pb, dst_path, "IFO", idx, AVIO_FLAG_READ_WRITE);
 
+	printf("11\n");fflush(stdout);
+		
     return ifo_write(ifo, idx);
 }
