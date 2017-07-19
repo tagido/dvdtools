@@ -402,6 +402,8 @@ static void write_cell_position(AVIOContext *pb, int64_t offset,
         avio_wb16(pb, cell[i].vob_id_nr);
         avio_w8(pb, 0);
         avio_w8(pb, cell[i].cell_nr);
+		
+		printf("(write_cell_position) %03d --- cell[i].vob_id_nr=%d -- cell[i].cell_nr=%03d\n", i, cell[i].vob_id_nr, cell[i].cell_nr);
     }
 }
 
@@ -621,11 +623,48 @@ static void ifo_write_pgci_ut(AVIOContext *pb, int64_t offset,
         write_pgci_lu(pb, offset, pgci_ut->lu + i);
 }
 
+void init_cell_playback(cell_playback_t *cell_playback)
+{
+    cell_playback->first_sector           = 0;
+    cell_playback->last_sector            = 0;
+    cell_playback->last_vobu_start_sector = 0;
+    
+	cell_playback->block_mode=0;
+    cell_playback->block_type=0;
+    cell_playback->seamless_play=0;
+    cell_playback->interleaved=0;
+    cell_playback->stc_discontinuity=0;
+    cell_playback->seamless_angle=0;
+    cell_playback->playback_mode=0;
+    cell_playback->restricted=0;
+    cell_playback->unknown2=0;
+
+    cell_playback->still_time =0;
+    cell_playback->cell_cmd_nr=0;
+	
+	// 140898: 00:02:26.22
+	
+    cell_playback->playback_time.hour=0x00;
+	cell_playback->playback_time.minute=0x02;
+	cell_playback->playback_time.second=0x31;
+	cell_playback->playback_time.frame_u=0x05;
+	
+    cell_playback->first_ilvu_end_sector=0; 	
+}	
+
 void patch_cell_playback(cell_playback_t *cell_playback, CELL *cell)
 {
     cell_playback->first_sector           = cell->start_sector;
     cell_playback->last_sector            = cell->last_sector;
     cell_playback->last_vobu_start_sector = cell->last_vobu_start_sector;
+	
+	
+	printf("   patch_cell_playback:01 p=%p\n",cell_playback);fflush(stdout);
+	printf("    patch_cell_playback:01b cell=%p\n",cell);fflush(stdout);
+	printf("     patch_cell_playback:01b  start_sector=%d\n",cell->start_sector);fflush(stdout);
+	printf("     patch_cell_playback:01b  last_sector=%d\n",cell->last_sector);fflush(stdout);
+	printf("     patch_cell_playback:01b  last_vobu_start_sector=%d\n",cell->last_vobu_start_sector);fflush(stdout);
+	
 }
 
 CELL *match_cell(CELL *cells, int nb_cells, int vob_id, int cell_id)
@@ -644,13 +683,62 @@ CELL *match_cell(CELL *cells, int nb_cells, int vob_id, int cell_id)
     return NULL;
 }
 
+static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells, int nb_cells, int start_cell)
+{
+	int i, n_orphans = 0;
+	static int already_reassigned = 0;
+	
+	if (already_reassigned) {
+		return;
+	} else {
+		already_reassigned = 1;
+	}
+	
+	printf("patch_pgc_reassign_orphan_cells:01\n");fflush(stdout);
+	printf("patch_pgc_reassign_orphan_cells:01b cells=%p\n",cells);fflush(stdout);
+	printf("patch_pgc_reassign_orphan_cells:01b  nb_cells=%d\n", nb_cells);fflush(stdout);
+	printf("patch_pgc_reassign_orphan_cells:01b  start_cell=%d\n", start_cell);fflush(stdout);
+	
+	n_orphans = nb_cells - start_cell;
+	
+	pgc->nr_of_cells = n_orphans;	
+	pgc->cell_playback = (cell_playback_t*)malloc(sizeof(cell_playback_t) * (n_orphans));
+	pgc->cell_position = (cell_position_t*)malloc(sizeof(cell_position_t) * (n_orphans));
+	
+	pgc->cell_position_offset = pgc->cell_playback_offset + 32 * (n_orphans);
+	
+    for (i = 0; i < (n_orphans); i++) {
+		printf("  patch_pgc orphans:  Cell_%03d\n", (i+1) );fflush(stdout);
+		init_cell_playback(&(pgc->cell_playback[i]));
+		patch_cell_playback(&(pgc->cell_playback[i]), &(cells[i+start_cell]));
+		
+		 pgc->cell_position[i].vob_id_nr = 1;
+		 pgc->cell_position[i].cell_nr = i+start_cell;
+	}
+	
+	pgc->nr_of_cells--;
+	
+	pgc->playback_time.hour=0x00;
+	pgc->playback_time.minute=0x42;
+	pgc->playback_time.second=0x47;
+	pgc->playback_time.frame_u=0;
+}
+
 static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
 {
     int i, missing_cell = 0;
     if (!pgc->cell_playback)
         return;
-
+	
+	printf("patch_pgc:01\n");fflush(stdout);
+	printf("patch_pgc:01b cells=%p\n",cells);fflush(stdout);
+	printf("patch_pgc:01b  nb_cells=%d\n", nb_cells);fflush(stdout);
+	printf("patch_pgc:01b  pgc->nr_of_cells=%d\n", pgc->nr_of_cells);fflush(stdout);
+	
     for (i = 0; i < pgc->nr_of_cells; i++) {
+		
+		printf("  patch_pgc: i=%03d\n", i);fflush(stdout);
+		
         CELL *cell = match_cell(cells, nb_cells,
                                 pgc->cell_position[i].vob_id_nr,
                                 pgc->cell_position[i].cell_nr);
@@ -662,6 +750,8 @@ static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
     if (missing_cell > 1) {
         av_log(NULL, AV_LOG_ERROR, "Missing %d cells, aborting.\n",
                missing_cell);
+			   
+		printf("patch_pgc:03 missing_cell=%03d\n", missing_cell);fflush(stdout);
     }
     pgc->nr_of_cells -= missing_cell;
 }
@@ -670,8 +760,16 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells)
 {
     int i;
 
-    for (i = 0; i < pgcit->nr_of_pgci_srp; i++)
-        patch_pgc(pgcit->pgci_srp[i].pgc, cells, nb_cells);
+    for (i = 0; i < pgcit->nr_of_pgci_srp; i++) {
+		printf("patch_pgcit:02  pgci=%03d\n", i);fflush(stdout);
+		
+		if ((i+1) == pgcit->nr_of_pgci_srp) {
+			patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells, 10);
+			pgcit->last_byte += (nb_cells-10)*(sizeof(cell_playback_t) + sizeof(cell_position_t));
+		} else {		
+			patch_pgc(pgcit->pgci_srp[i].pgc, cells, nb_cells);
+		}
+	}
 }
 
 static void patch_pgci_lu(pgci_lu_t *lu, CELL *cells, int nb_cells)
@@ -1234,16 +1332,25 @@ static void patch_tt_srpt(IFOContext *ifo,
 
 static void patch_c_adt(c_adt_t *c_adt, CELL *cells, int nb_cells)
 {
+	printf("patch_c_adt:01\n");fflush(stdout);
+	printf("patch_c_adt:01b cells=%p\n",cells);fflush(stdout);
+	printf("patch_c_adt:01b  nb_cells=%d\n", nb_cells);fflush(stdout);
+	
     int i, map_size, missing_cell = 0;
 
     map_size = (c_adt->last_byte + 1 - C_ADT_SIZE) / sizeof(cell_adr_t);
 
-
+	printf("patch_c_adt:01b  map_size=%d\n",map_size);fflush(stdout);
 
     for (i = 0; i < map_size; i++) {
         CELL *c = match_cell(cells, nb_cells,
                              c_adt->cell_adr_table[i].vob_id,
                              c_adt->cell_adr_table[i].cell_id);
+							 
+		printf("patch_c_adt:02  i=%d vob_id=%d cell_id=%d c=%p\n",i,
+			c_adt->cell_adr_table[i].vob_id, c_adt->cell_adr_table[i].cell_id,c);fflush(stdout);
+
+							 
         if (c) {
             av_log(NULL, AV_LOG_VERBOSE, "vob_id %d, cell_id %d",
                    c_adt->cell_adr_table[i].vob_id,
@@ -1258,6 +1365,14 @@ static void patch_c_adt(c_adt_t *c_adt, CELL *cells, int nb_cells)
             av_log(NULL, AV_LOG_VERBOSE|AV_LOG_C(111), "s 0x%08x, 0x%08x\n",
                    c_adt->cell_adr_table[i].start_sector,
                    c_adt->cell_adr_table[i].last_sector);
+				   
+		printf("vob_id %02d, cell_id %04d ... ",
+                   c_adt->cell_adr_table[i].vob_id,
+                   c_adt->cell_adr_table[i].cell_id);		   
+		printf("==> sectors %08u..%08u\n",
+                   c_adt->cell_adr_table[i].start_sector,
+                   c_adt->cell_adr_table[i].last_sector);
+				   
         } else {
             missing_cell++;
         }
@@ -1369,7 +1484,7 @@ void patch_vmg(IFOContext *ifo)
 	}
 
     if (force_video_ts_n_titles) {
-        ifo->i->tt_srpt->nr_of_srpts = force_video_ts_n_titles;
+        //ifo->i->tt_srpt->nr_of_srpts = force_video_ts_n_titles;
 		
 		vm_cmd_t new_cmds = {0x30,0x02 ,0x00 ,0x00 ,0x00 ,0x01 ,0x00 ,0x00};
 		ifo->i->pgci_ut->lu[0].pgcit[0].pgci_srp[0].pgc[0].command_tbl[0].pre_cmds[0] =  new_cmds;
