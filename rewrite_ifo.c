@@ -764,13 +764,13 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells,
     for (i = 0; i < (n_orphans); i++) {
 		printf("  patch_pgc orphans:  Cell_%03d\n", (i+1) );fflush(stdout);
 		init_cell_playback(&(pgc->cell_playback[i]));
-		patch_cell_playback(&(pgc->cell_playback[i]), &(cells[i+start_cell]), i+1);
+		patch_cell_playback(&(pgc->cell_playback[i]), &(cells[i+start_cell+1]), i+1);
 		
 		 pgc->cell_position[i].vob_id_nr = 1;
 		 pgc->cell_position[i].cell_nr = i+start_cell;
 	}
 	
-	//pgc->nr_of_cells--;
+	pgc->nr_of_cells--;
 	
 	pgc->playback_time.hour=0x00;
 	pgc->playback_time.minute=0x42;
