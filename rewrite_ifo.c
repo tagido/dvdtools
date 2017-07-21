@@ -25,7 +25,18 @@ typedef struct PutBitContext {
     int size_in_bits;
 } PutBitContext;
 
-#define avio_seek(a, b, c)                                              \
+typedef struct {
+	short isVMGMode;
+} IFO_REWRITE_CONTEXT;
+
+IFO_REWRITE_CONTEXT ifoRewriteContext;
+
+void init_IFO_REWRITE_CONTEXT(IFO_REWRITE_CONTEXT *context)
+{
+	context->isVMGMode = 0;
+}
+
+#define xptoavio_seek(a, b, c)                                              \
     do {                                                                \
         int64_t _next = b;                                              \
         int64_t _pos  = avio_tell(a);                                   \
@@ -39,7 +50,7 @@ typedef struct PutBitContext {
 
 
 // Options
-int force_video_ts_n_titles = 3;
+int force_video_ts_n_titles = 4;
 
 
 static inline void init_put_bits(PutBitContext *s, uint8_t *buffer,
@@ -763,7 +774,8 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells)
     for (i = 0; i < pgcit->nr_of_pgci_srp; i++) {
 		printf("patch_pgcit:02  pgci=%03d\n", i);fflush(stdout);
 		
-		if ((i+1) == pgcit->nr_of_pgci_srp) {
+		if (((i+1) == pgcit->nr_of_pgci_srp) &&
+			(!ifoRewriteContext.isVMGMode)){
 			patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells, 10);
 			pgcit->last_byte += (nb_cells-10)*(sizeof(cell_playback_t) + sizeof(cell_position_t));
 		} else {		
@@ -1143,8 +1155,12 @@ static int ifo_write_vgm(IFOContext *ifo)
     AVIOContext *pb  = ifo->pb;
     vmgi_mat_t *vmgi = ifo->i->vmgi_mat;
     int i;
+	
+	printf("ifo_write_vgm:1\n");fflush(stdout);
 
     avio_printf(pb, "%s", "DVDVIDEO-VMG");
+	
+	printf("ifo_write_vgm:02\n");fflush(stdout);
 
     avio_wb32(pb, vmgi->vmg_last_sector);
 
@@ -1187,6 +1203,8 @@ static int ifo_write_vgm(IFOContext *ifo)
     avio_wb32(pb, vmgi->vmgm_c_adt);
     avio_wb32(pb, vmgi->vmgm_vobu_admap);
 
+	printf("ifo_write_vgm:03\n");fflush(stdout);
+	
     for (i = 0; i < 32; i++)
         avio_w8(pb, 0);
 
@@ -1201,6 +1219,8 @@ static int ifo_write_vgm(IFOContext *ifo)
     for (i = 0; i < 17; i++)
         avio_w8(pb, 0);
 
+	printf("ifo_write_vgm:04\n");fflush(stdout);
+	
     avio_w8(pb, vmgi->nr_of_vmgm_subp_streams);
 
     write_subp_attr(pb, &vmgi->vmgm_subp_attr);
@@ -1221,6 +1241,8 @@ static int ifo_write_vgm(IFOContext *ifo)
         write_ptl_mait(pb, vmgi->ptl_mait * DVD_BLOCK_LEN,
                        ifo->i->ptl_mait);
 
+	printf("ifo_write_vgm:05\n");fflush(stdout);
+					   
     write_vts_atrt(pb, vmgi->vts_atrt * DVD_BLOCK_LEN,
                    ifo->i->vts_atrt);
 
@@ -1235,6 +1257,8 @@ static int ifo_write_vgm(IFOContext *ifo)
     if (vmgi->vmgm_vobu_admap)
         ifo_write_vobu_admap(pb, vmgi->vmgm_vobu_admap * DVD_BLOCK_LEN,
                              ifo->i->menu_vobu_admap);
+
+	printf("ifo_write_vgm:10\n");fflush(stdout);
 
     return 0;
 }
@@ -1484,7 +1508,8 @@ void patch_vmg(IFOContext *ifo)
 	}
 
     if (force_video_ts_n_titles) {
-        //ifo->i->tt_srpt->nr_of_srpts = force_video_ts_n_titles;
+        ifo->i->tt_srpt->nr_of_srpts = force_video_ts_n_titles;
+
 		
 		vm_cmd_t new_cmds = {0x30,0x02 ,0x00 ,0x00 ,0x00 ,0x01 ,0x00 ,0x00};
 		ifo->i->pgci_ut->lu[0].pgcit[0].pgci_srp[0].pgc[0].command_tbl[0].pre_cmds[0] =  new_cmds;
@@ -1530,6 +1555,7 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
     if (ifo->i->menu_vobu_admap)
         patch_vobu_admap(ifo->i->menu_vobu_admap, vobus, nb_vobus);
 
+	printf("fix_menu:04\n");fflush(stdout);
     patch_pgci_ut(ifo->i->pgci_ut, cells, nb_cells);
 
     return 0;
@@ -1543,12 +1569,15 @@ int main(int argc, char **argv)
     int ret, idx = 0;
     const char *src_path, *dst_path;
 
+    init_IFO_REWRITE_CONTEXT(&ifoRewriteContext);
+	
 	printf("rewrite_ifo...\n");fflush(stdout);
 	
 	printf("1\n");fflush(stdout);
 	
     av_register_all();
 
+	// Parse args
     if (argc < 4)
         help(argv[0]);
 
@@ -1557,6 +1586,10 @@ int main(int argc, char **argv)
     idx = atoi(argv[3]);
 
 	printf("2\n");fflush(stdout);
+	
+	    if (!idx) {
+			ifoRewriteContext.isVMGMode=1;
+		}
 	
     ifo_open(&ifo, dst_path, idx, AVIO_FLAG_READ_WRITE);
 	
