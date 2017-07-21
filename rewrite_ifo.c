@@ -8,6 +8,8 @@
 #include <dvdread/dvd_reader.h>
 #include <dvdread/ifo_read.h>
 
+// https://sourcecodebrowser.com/libdvdread/4.1.3/ifo__types_8h_source.html
+
 #include <libavutil/intreadwrite.h>
 #include <libavformat/avio.h>
 #include <libavformat/avformat.h>
@@ -27,6 +29,8 @@ typedef struct PutBitContext {
 
 typedef struct {
 	short isVMGMode;
+	
+	short isLuMode;
 } IFO_REWRITE_CONTEXT;
 
 IFO_REWRITE_CONTEXT ifoRewriteContext;
@@ -34,6 +38,7 @@ IFO_REWRITE_CONTEXT ifoRewriteContext;
 void init_IFO_REWRITE_CONTEXT(IFO_REWRITE_CONTEXT *context)
 {
 	context->isVMGMode = 0;
+	context->isLuMode = 0;
 }
 
 #define xptoavio_seek(a, b, c)                                              \
@@ -529,7 +534,7 @@ static void write_subp_attr(AVIOContext *pb, subp_attr_t *attr)
 
     init_put_bits(&s, &buffer, 1);
     put_bits(&s, 3, attr->code_mode);
-    put_bits(&s, 3, attr->zero1);
+    put_bits(&s, 3, attr->zero1=0);
     put_bits(&s, 2, attr->type);
 
     flush_put_bits(&s);
@@ -573,7 +578,7 @@ static void write_multichannel_ext(AVIOContext *pb, multichannel_ext_t *ext)
 
     init_put_bits(&s, buffer, sizeof(*ext));
 
-    put_bits(&s, 7, ext->zero1);
+    put_bits(&s, 7, ext->zero1=0);
     put_bits(&s, 1, ext->ach0_gme);
 
     put_bits(&s, 7, ext->zero2);
@@ -694,7 +699,8 @@ CELL *match_cell(CELL *cells, int nb_cells, int vob_id, int cell_id)
     return NULL;
 }
 
-static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells, int nb_cells, int start_cell)
+static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells, 
+	int nb_cells, int start_cell, pgcit_t *pgcit, ifo_handle_t *ifo)
 {
 	int i, n_orphans = 0;
 	static int already_reassigned = 0;
@@ -704,6 +710,9 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells, int nb_cell
 	} else {
 		already_reassigned = 1;
 	}
+	
+	//int map_size = (pgc->last_byte + 1 - PGC_SIZE ) / sizeof(uint32_t);
+	//pgc->last_byte = PGC_SIZE  - 1 + map_size * sizeof(uint32_t);
 	
 	printf("patch_pgc_reassign_orphan_cells:01\n");fflush(stdout);
 	printf("patch_pgc_reassign_orphan_cells:01b cells=%p\n",cells);fflush(stdout);
@@ -716,7 +725,12 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells, int nb_cell
 	pgc->cell_playback = (cell_playback_t*)malloc(sizeof(cell_playback_t) * (n_orphans));
 	pgc->cell_position = (cell_position_t*)malloc(sizeof(cell_position_t) * (n_orphans));
 	
-	pgc->cell_position_offset = pgc->cell_playback_offset + 32 * (n_orphans);
+	pgc->cell_position_offset = pgc->cell_playback_offset + sizeof(cell_playback_t) * (n_orphans);
+	
+	pgcit->last_byte += sizeof(cell_playback_t) * (n_orphans) + sizeof(cell_position_t) * (n_orphans);
+
+	//ifo->vts_ptt_srpt->last_byte+= sizeof(cell_position_t) * (n_orphans);
+	//ifo->vts_ptt_srpt->last_byte+= sizeof(cell_playback_t) * (n_orphans);
 	
     for (i = 0; i < (n_orphans); i++) {
 		printf("  patch_pgc orphans:  Cell_%03d\n", (i+1) );fflush(stdout);
@@ -767,7 +781,7 @@ static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
     pgc->nr_of_cells -= missing_cell;
 }
 
-static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells)
+static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells, ifo_handle_t *ifo)
 {
     int i;
 
@@ -775,9 +789,17 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells)
 		printf("patch_pgcit:02  pgci=%03d\n", i);fflush(stdout);
 		
 		if (((i+1) == pgcit->nr_of_pgci_srp) &&
-			(!ifoRewriteContext.isVMGMode)){
-			patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells, 10);
-			pgcit->last_byte += (nb_cells-10)*(sizeof(cell_playback_t) + sizeof(cell_position_t));
+			(!ifoRewriteContext.isVMGMode) &&
+			(!ifoRewriteContext.isLuMode)){
+			printf("  (BEFORE) patch_pgcit ifo->vts_ptt_srpt->last_byte=%u\n", ifo->vts_ptt_srpt->last_byte);
+
+				
+			patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells, 10, pgcit, ifo);
+			
+			//pgcit->last_byte += (nb_cells-10)*(sizeof(cell_playback_t) + sizeof(cell_position_t));
+			printf("   patch_pgcit pgcit->pgci_srp[i].pgc_start_byte=%u\n",pgcit->pgci_srp[i].pgc_start_byte);
+			printf("   patch_pgcit pgcit->last_byte=%u\n", pgcit->last_byte);
+			printf("   patch_pgcit ifo->vts_ptt_srpt->last_byte=%u\n", ifo->vts_ptt_srpt->last_byte);
 		} else {		
 			patch_pgc(pgcit->pgci_srp[i].pgc, cells, nb_cells);
 		}
@@ -786,15 +808,19 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells)
 
 static void patch_pgci_lu(pgci_lu_t *lu, CELL *cells, int nb_cells)
 {
-    patch_pgcit(lu->pgcit, cells, nb_cells);
+    patch_pgcit(lu->pgcit, cells, nb_cells, NULL);
 }
 
 static void patch_pgci_ut(pgci_ut_t *pgci_ut, CELL *cells, int nb_cells)
 {
     int i;
 
+	ifoRewriteContext.isLuMode = 1;
+
     for (i = 0; i < pgci_ut->nr_of_lus; i++)
         patch_pgci_lu(pgci_ut->lu + i, cells, nb_cells);
+	
+	ifoRewriteContext.isLuMode = 0;
 }
 
 
@@ -1490,7 +1516,7 @@ int fix_title(IFOContext *ifo, const char* path, int idx)
     if (ifo->i->vts_vobu_admap)
         patch_vobu_admap(ifo->i->vts_vobu_admap, vobus, nb_vobus);
 
-    patch_pgcit(ifo->i->vts_pgcit, cells, nb_cells);
+    patch_pgcit(ifo->i->vts_pgcit, cells, nb_cells, ifo->i);
     
     patch_title_video_attrs(ifo);
 
