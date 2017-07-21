@@ -260,6 +260,8 @@ static void ifo_write_vts_ptt_srp(AVIOContext *pb, int offset,
 {
     int i, map_size;
 
+	printf("  >> >> ifo_write_vts_ptt_srp=[%08X]\n", offset);
+	
     map_size = (srpt->last_byte + 1 - TT_SRPT_SIZE) / sizeof(int32_t);
     avio_seek(pb, offset, SEEK_SET);
 
@@ -300,7 +302,7 @@ static void write_user_ops(AVIOContext *pb, user_ops_t *ops)
 {
     PutBitContext s;
     uint8_t buf[sizeof(*ops)];
-
+	
     init_put_bits(&s, buf, sizeof(buf));
 
     put_bits(&s, 7, ops->zero);
@@ -338,6 +340,8 @@ static void write_user_ops(AVIOContext *pb, user_ops_t *ops)
 static void write_command_tbl(AVIOContext *pb, int64_t offset,
                               pgc_command_tbl_t *cmd_tbl)
 {
+	printf("  >> >> write_command_tbl=[%08X]\n", offset);
+
     avio_seek(pb, offset, SEEK_SET);
 
     avio_wb16(pb, cmd_tbl->nr_of_pre);
@@ -371,6 +375,7 @@ static void write_cell_playback_internal(AVIOContext *pb,
 {
     PutBitContext s;
     uint8_t buf[2];
+	
 
     init_put_bits(&s, buf, sizeof(buf));
 
@@ -402,6 +407,9 @@ static void write_cell_playback(AVIOContext *pb, int64_t offset,
                                 int nb, cell_playback_t *cell)
 {
     int i;
+	
+	printf("  >> >> write_cell_playback=[%08X]\n", offset);
+	
     avio_seek(pb, offset, SEEK_SET);
 
     for (i = 0; i < nb; i++)
@@ -412,6 +420,9 @@ static void write_cell_position(AVIOContext *pb, int64_t offset,
 {
     int i;
 
+	printf("  >> >> write_cell_position=[%08X]\n", offset);
+
+	
     avio_seek(pb, offset, SEEK_SET);
 
     for (i = 0; i < nb; i++) {
@@ -427,6 +438,9 @@ static void write_pgc(AVIOContext *pb, int64_t offset, pgc_t *pgc)
 {
     int i;
 
+	printf("  >> >> write_pgc offset=[%08X]\n", offset);
+
+	
     avio_seek(pb, offset, SEEK_SET);
 
     avio_wb16(pb, 0);
@@ -486,6 +500,8 @@ static void ifo_write_pgcit(AVIOContext *pb, int64_t offset,
     avio_wb16(pb, 0);
     avio_wb32(pb, pgcit->last_byte);
 
+	printf("  >>ifo_write_pgcit offset=[%08X]\n", offset);
+	
     for (i = 0; i < pgcit->nr_of_pgci_srp; i++)
          write_pgci_srp(pb, pgcit->pgci_srp + i);
 
@@ -728,6 +744,7 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells,
 	pgc->cell_position_offset = pgc->cell_playback_offset + sizeof(cell_playback_t) * (n_orphans);
 	
 	pgcit->last_byte += sizeof(cell_playback_t) * (n_orphans) + sizeof(cell_position_t) * (n_orphans);
+	ifo->pgci_ut->lu->lang_start_byte+= (sizeof(cell_playback_t) * (n_orphans) +sizeof(cell_position_t) * (n_orphans));
 
 	//ifo->vts_ptt_srpt->last_byte+= sizeof(cell_position_t) * (n_orphans);
 	//ifo->vts_ptt_srpt->last_byte+= sizeof(cell_playback_t) * (n_orphans);
@@ -741,7 +758,7 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells,
 		 pgc->cell_position[i].cell_nr = i+start_cell;
 	}
 	
-	pgc->nr_of_cells--;
+	//pgc->nr_of_cells--;
 	
 	pgc->playback_time.hour=0x00;
 	pgc->playback_time.minute=0x42;
@@ -843,7 +860,10 @@ static void ifo_write_vts_tmapt(AVIOContext *pb, int64_t offset,
                                 vts_tmapt_t *vts_tmapt)
 {
     int i;
+	
+	printf("  >>ifo_write_vts_tmapt offset=[%08X]\n", offset);
 
+	
     avio_seek(pb, offset, SEEK_SET);
 
     avio_wb16(pb, vts_tmapt->nr_of_tmaps);
@@ -862,6 +882,7 @@ static void ifo_write_c_adt(AVIOContext *pb, int64_t offset,
                             c_adt_t *c_adt)
 {
     int i, map_size;
+	printf("  >>ifo_write_c_adt offset=[%08X]\n", offset);
 
     map_size = (c_adt->last_byte + 1 - C_ADT_SIZE) / sizeof(cell_adr_t);
 
@@ -885,6 +906,9 @@ static void ifo_write_vobu_admap(AVIOContext *pb, int64_t offset,
 {
     int i, map_size;
 
+	printf("  >>ifo_write_vobu_admap offset=[%08X]\n", offset);
+	
+	
     map_size = (vobu_admap->last_byte + 1 - VOBU_ADMAP_SIZE) / sizeof(uint32_t);
 
     avio_seek(pb, offset, SEEK_SET);
