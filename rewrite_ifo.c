@@ -684,12 +684,20 @@ void init_cell_playback(cell_playback_t *cell_playback)
     cell_playback->first_ilvu_end_sector=0; 	
 }	
 
-void patch_cell_playback(cell_playback_t *cell_playback, CELL *cell)
+void patch_cell_playback(cell_playback_t *cell_playback, CELL *cell, int cell_id_in_program)
 {
     cell_playback->first_sector           = cell->start_sector;
     cell_playback->last_sector            = cell->last_sector;
     cell_playback->last_vobu_start_sector = cell->last_vobu_start_sector;
 	cell_playback->playback_time          = cell->duration;
+	
+	if (cell_id_in_program==1) {
+		cell_playback->seamless_play=0;
+		cell_playback->stc_discontinuity=1;
+	} else {
+		cell_playback->seamless_play=1;
+		cell_playback->stc_discontinuity=0;		
+	}
 	
 	printf("   patch_cell_playback:01 p=%p\n",cell_playback);fflush(stdout);
 	printf("    patch_cell_playback:01b cell=%p\n",cell);fflush(stdout);
@@ -756,7 +764,7 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells,
     for (i = 0; i < (n_orphans); i++) {
 		printf("  patch_pgc orphans:  Cell_%03d\n", (i+1) );fflush(stdout);
 		init_cell_playback(&(pgc->cell_playback[i]));
-		patch_cell_playback(&(pgc->cell_playback[i]), &(cells[i+start_cell]));
+		patch_cell_playback(&(pgc->cell_playback[i]), &(cells[i+start_cell]), i+1);
 		
 		 pgc->cell_position[i].vob_id_nr = 1;
 		 pgc->cell_position[i].cell_nr = i+start_cell;
@@ -789,7 +797,7 @@ static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
                                 pgc->cell_position[i].vob_id_nr,
                                 pgc->cell_position[i].cell_nr);
         if (cell)
-            patch_cell_playback(pgc->cell_playback + i, cell);
+            patch_cell_playback(pgc->cell_playback + i, cell, i+1);
         else
             missing_cell++;
     }

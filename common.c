@@ -224,13 +224,21 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
             vobus[i - 1].vob_id != vobus[i].vob_id) {
             if (j) {
                 cell[j].start_sector   = cell[j - 1].last_sector + 1;
+				
+				cell[j-1].duration = vobus[i-1].dsi.dsi_gi.c_eltm;
             }
 
             cell[j].vob_id        = vobus[i - 1].vob_id;
             cell[j].cell_id       = vobus[i - 1].cell_id;
             cell[j].last_vobu_start_sector = vobus[i - 1].start_sector;
-			cell[j].duration = vobus[i - 1].dsi.dsi_gi.c_eltm;
-
+			
+			
+			printf("    populate_cells i:%u j:%u   secs %02X:%02X:%02X.%02X \n ",i,j,
+			cell[j].duration.hour,
+			cell[j].duration.minute,
+			cell[j].duration.second,
+			cell[j].duration.frame_u);	
+			
 			
             cell[j++].last_sector = vobus[i - 1].end_sector - 1;
         }
