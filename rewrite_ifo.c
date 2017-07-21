@@ -689,14 +689,18 @@ void patch_cell_playback(cell_playback_t *cell_playback, CELL *cell)
     cell_playback->first_sector           = cell->start_sector;
     cell_playback->last_sector            = cell->last_sector;
     cell_playback->last_vobu_start_sector = cell->last_vobu_start_sector;
-	
+	cell_playback->playback_time          = cell->duration;
 	
 	printf("   patch_cell_playback:01 p=%p\n",cell_playback);fflush(stdout);
 	printf("    patch_cell_playback:01b cell=%p\n",cell);fflush(stdout);
 	printf("     patch_cell_playback:01b  start_sector=%d\n",cell->start_sector);fflush(stdout);
 	printf("     patch_cell_playback:01b  last_sector=%d\n",cell->last_sector);fflush(stdout);
 	printf("     patch_cell_playback:01b  last_vobu_start_sector=%d\n",cell->last_vobu_start_sector);fflush(stdout);
-	
+	printf("     patch_cell_playback:01b   secs %02X:%02X:%02X.%02X \n ",
+			cell_playback->playback_time.hour,
+			cell_playback->playback_time.minute,
+			cell_playback->playback_time.second,
+			cell_playback->playback_time.frame_u);	
 }
 
 CELL *match_cell(CELL *cells, int nb_cells, int vob_id, int cell_id)

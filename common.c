@@ -59,6 +59,10 @@ static void print_dsi(uint8_t *buf) {
 */
 void parse_nav_pack(AVIOContext *pb, int32_t *header_state, VOBU *vobu)
 {
+	
+	static int last_cell_seen=-1;
+	static dvd_time_t last_cell_c_eltm;
+	
     int size = MAX_SYNC_SIZE, startcode, len;
     uint8_t pci[NAV_PCI_SIZE];
     uint8_t dsi[NAV_DSI_SIZE];
@@ -80,6 +84,23 @@ void parse_nav_pack(AVIOContext *pb, int32_t *header_state, VOBU *vobu)
     // navPrint_DSI(&vobu->dsi);
     vobu->vob_id  = vobu->dsi.dsi_gi.vobu_vob_idn;
     vobu->cell_id = vobu->dsi.dsi_gi.vobu_c_idn;
+	
+	
+	
+	
+	
+	if (last_cell_seen!=-1 && last_cell_seen!=vobu->cell_id) {
+	
+		printf("cell_id=%04d secs %02X:%02X:%02X.%02X \n ",  last_cell_seen, 
+			last_cell_c_eltm.hour,
+			last_cell_c_eltm.minute,
+			last_cell_c_eltm.second,
+			last_cell_c_eltm.frame_u);
+		
+	}
+	
+	last_cell_c_eltm=vobu->dsi.dsi_gi.c_eltm;
+	last_cell_seen=vobu->cell_id;
 }
 
 int find_vobu(AVIOContext *pb, VOBU *vobus, int i)
@@ -208,6 +229,9 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
             cell[j].vob_id        = vobus[i - 1].vob_id;
             cell[j].cell_id       = vobus[i - 1].cell_id;
             cell[j].last_vobu_start_sector = vobus[i - 1].start_sector;
+			cell[j].duration = vobus[i - 1].dsi.dsi_gi.c_eltm;
+
+			
             cell[j++].last_sector = vobus[i - 1].end_sector - 1;
         }
     }
