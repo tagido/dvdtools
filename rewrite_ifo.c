@@ -796,9 +796,10 @@ static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
         CELL *cell = match_cell(cells, nb_cells,
                                 pgc->cell_position[i].vob_id_nr,
                                 pgc->cell_position[i].cell_nr);
-        if (cell)
+        if (cell) {
             patch_cell_playback(pgc->cell_playback + i, cell, i+1);
-        else
+			cell->isOrphan=0;
+        } else
             missing_cell++;
     }
     if (missing_cell > 1) {
@@ -822,9 +823,14 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells, ifo_handle_t 
 			(!ifoRewriteContext.isLuMode)){
 			printf("  (BEFORE) patch_pgcit ifo->vts_ptt_srpt->last_byte=%u\n", ifo->vts_ptt_srpt->last_byte);
 
-				
-			patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells, 10, pgcit, ifo);
+			int firstOrphanCellID = get_first_orphan_cell_id(cells, nb_cells);
 			
+			if (firstOrphanCellID) {
+				printf("   patch_pgcit firstOrphanCellID=%u\n", firstOrphanCellID);
+			
+			
+				patch_pgc_reassign_orphan_cells(pgcit->pgci_srp[i].pgc, cells, nb_cells,firstOrphanCellID , pgcit, ifo);
+			}
 			//pgcit->last_byte += (nb_cells-10)*(sizeof(cell_playback_t) + sizeof(cell_position_t));
 			printf("   patch_pgcit pgcit->pgci_srp[i].pgc_start_byte=%u\n",pgcit->pgci_srp[i].pgc_start_byte);
 			printf("   patch_pgcit pgcit->last_byte=%u\n", pgcit->last_byte);

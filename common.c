@@ -226,12 +226,14 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
                 cell[j].start_sector   = cell[j - 1].last_sector + 1;
 				
 				cell[j-1].duration = vobus[i-1].dsi.dsi_gi.c_eltm;
+				
             }
 
             cell[j].vob_id        = vobus[i - 1].vob_id;
             cell[j].cell_id       = vobus[i - 1].cell_id;
             cell[j].last_vobu_start_sector = vobus[i - 1].start_sector;
 			
+			cell[j].isOrphan=1;
 			
 			printf("    populate_cells i:%u j:%u   secs %02X:%02X:%02X.%02X \n ",i,j,
 			cell[j].duration.hour,
@@ -247,4 +249,17 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
     *c = cell;
 
     return j;
+}
+
+
+int get_first_orphan_cell_id(CELL *cells, int nb_vobus)
+{
+    int i = 0;
+
+    for (i = 1; i <= nb_vobus; i++) {
+        if (cells[i-1].isOrphan)
+			return cells[i-1].cell_id;
+	}
+
+	return 0;
 }
