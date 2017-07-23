@@ -47,7 +47,9 @@ typedef struct {
 
 void parse_nav_pack(AVIOContext *pb, int32_t *header_state, VOBU *vobu);
 int find_vobu(AVIOContext *pb, VOBU *vobus, int i);
-int populate_vobs(VOBU **v, const char *filename);
+int populate_vobs(VOBU **v, const char *filename, int index);
+int populate_all_vobs(VOBU **v, const char *path);
+
 int populate_cells(CELL **c, VOBU *vobus, int nb_vobus);
 int get_first_orphan_cell_id(CELL *c, int nb_vobus);
 

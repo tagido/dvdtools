@@ -772,7 +772,7 @@ static void patch_pgc_reassign_orphan_cells(pgc_t *pgc, CELL *cells,
 	
 	pgc->nr_of_cells--;
 	
-	pgc->playback_time.hour=0x00;
+	pgc->playback_time.hour=0x05;
 	pgc->playback_time.minute=0x42;
 	pgc->playback_time.second=0x47;
 	pgc->playback_time.frame_u=0;
@@ -824,6 +824,9 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells, ifo_handle_t 
 			printf("  (BEFORE) patch_pgcit ifo->vts_ptt_srpt->last_byte=%u\n", ifo->vts_ptt_srpt->last_byte);
 
 			int firstOrphanCellID = get_first_orphan_cell_id(cells, nb_cells);
+			
+			// TMP
+			firstOrphanCellID=13;
 			
 			if (firstOrphanCellID) {
 				printf("   patch_pgcit firstOrphanCellID=%u\n", firstOrphanCellID);
@@ -1539,14 +1542,14 @@ void patch_title_video_attrs(IFOContext *ifo)
 int fix_title(IFOContext *ifo, const char* path, int idx)
 {
     char title[1024];
-    VOBU *vobus;
+    VOBU *vobus=NULL;
     int nb_vobus;
     CELL *cells;
     int nb_cells;
 
     snprintf(title, sizeof(title), "%s/VIDEO_TS/VTS_%02d_1.VOB", path, idx);
 
-    if ((nb_vobus = populate_vobs(&vobus, title)) < 0)
+    if ((nb_vobus = populate_all_vobs(&vobus, path)) < 0) 
         return -1;
 
     if ((nb_cells = populate_cells(&cells, vobus, nb_vobus)) < 0)
@@ -1562,6 +1565,7 @@ int fix_title(IFOContext *ifo, const char* path, int idx)
     
     patch_title_video_attrs(ifo);
 
+	
     return 0;
 }
 
@@ -1611,7 +1615,7 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
         
 	printf("fix_menu:03\n");fflush(stdout);
 
-    if ((nb_vobus = populate_vobs(&vobus, menu)) < 0)
+    if ((nb_vobus = populate_vobs(&vobus, menu, 1)) < 0)
         return -1;
 
     if ((nb_cells = populate_cells(&cells, vobus, nb_vobus)) < 0)
@@ -1626,6 +1630,7 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
 	printf("fix_menu:04\n");fflush(stdout);
     patch_pgci_ut(ifo->i->pgci_ut, cells, nb_cells);
 
+	
     return 0;
 }
 

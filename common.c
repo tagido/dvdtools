@@ -146,13 +146,26 @@ redo:
     }
 }
 
-int populate_vobs(VOBU **v, const char *filename)
+int populate_vobs(VOBU **v, const char *filename, int index)
 {
     AVIOContext *in = NULL;
-    VOBU *vobus = NULL;
-    int ret, i = 0, size = 1;
+    static VOBU *vobus = NULL;
+    int ret, i = 0;
+    static int size = 1;
+    static int previous_vobus_found = 0;
+	
     int64_t end;
 
+	if (index==1) {
+		size = 1;
+		previous_vobus_found = 0;	
+		vobus = NULL;
+	}
+	
+	printf("Analysing VOB file %s...\n",filename);
+	
+	i=previous_vobus_found;
+	
     ret = avio_open(&in, filename, AVIO_FLAG_READ);
 
     if (ret < 0) {
@@ -165,6 +178,9 @@ int populate_vobs(VOBU **v, const char *filename)
 
     end = avio_size(in);
 
+	
+	//100000 * sizeof(VOBU)
+	
     if (av_reallocp_array(&vobus, size, sizeof(VOBU)) < 0)
         return -1;
 
@@ -181,8 +197,13 @@ int populate_vobs(VOBU **v, const char *filename)
                    i - 1,
                    vobus[i - 1].vob_id, vobus[i].vob_id,
                    vobus[i - 1].cell_id, vobus[i].cell_id);
+				   
+			/*printf("%d Values %d vs %d %d vs %d\n",
+                   i - 1,
+                   vobus[i - 1].vob_id, vobus[i].vob_id,
+                   vobus[i - 1].cell_id, vobus[i].cell_id);fflush(stdout);*/
         }
-        if (++i >= size - 1) {
+        if ( ((++i)) >= size - 1) {
             size *= 2;
             if (av_reallocp_array(&vobus, size, sizeof(VOBU)) < 0)
                 return -1;
@@ -196,7 +217,9 @@ int populate_vobs(VOBU **v, const char *filename)
 
         if (i != 1)
             vobus[i].start_sector = -1; // Guard
-        *v = vobus;
+
+		*v = vobus;
+
     } else {
         av_log(NULL, AV_LOG_ERROR, "Empty %s",
                filename);
@@ -205,7 +228,39 @@ int populate_vobs(VOBU **v, const char *filename)
 
     avio_close(in);
 
+	previous_vobus_found = i;
+	
+	printf("... VOBU array size=%d\n",size);
+	
     return i;
+}
+
+int populate_all_vobs(VOBU **v, const char *path)
+{
+	char title[1024];
+	int nb_vobus;
+	int total_vobus=0;
+		
+	for(int idx=1;idx<5;idx++) {
+	
+		snprintf(title, sizeof(title), "%s/VIDEO_TS/VTS_01_%d.VOB", path, idx);
+
+		if ((nb_vobus = populate_vobs(v, title, idx)) < 0)
+		{
+			printf("... not found %d VOBUs\n", nb_vobus);
+			//exit(-1);
+		}
+		else {
+			printf("... found %d VOBUs\n", nb_vobus);
+			total_vobus=nb_vobus;
+		}
+
+		fflush(stdout);
+	}		
+
+	printf(". found a total of %d VOBUs\n", total_vobus);
+	
+	return total_vobus;
 }
 
 int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
@@ -213,6 +268,9 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
     int i, j = 0;
     CELL *cell;
 
+	printf("populate_cells starting n vobus:%u\n ",nb_vobus);
+			
+	
     // FIXME lazy
     cell = av_mallocz(nb_vobus * sizeof(CELL));
 
@@ -220,8 +278,15 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
         return AVERROR(ENOMEM);
 
     for (i = 1; i <= nb_vobus; i++) {
-        if (vobus[i - 1].cell_id != vobus[i].cell_id ||
-            vobus[i - 1].vob_id != vobus[i].vob_id) {
+		
+		//printf ("     populate cell    -----    i:%d cell id:%d\n,", i-1, vobus[i - 1].cell_id);
+		
+        if ((vobus[i - 1].cell_id != vobus[i].cell_id ||
+            vobus[i - 1].vob_id != vobus[i].vob_id
+			
+			)
+			&& (vobus[i - 1].cell_id != 0 && vobus[i - 1].cell_id != 1 && vobus[i - 1].cell_id != 255))
+			{
             if (j) {
                 cell[j].start_sector   = cell[j - 1].last_sector + 1;
 				
@@ -248,6 +313,8 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
 
     *c = cell;
 
+	printf("populate_cells ending n cells:%u\n ", j);
+	
     return j;
 }
 
