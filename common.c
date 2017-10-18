@@ -146,7 +146,7 @@ redo:
     }
 }
 
-int populate_vobs(VOBU **v, const char *filename, int index)
+int populate_vobs(VOBU **v, const char *filename, int index, long file_offset)
 {
     AVIOContext *in = NULL;
     static VOBU *vobus = NULL;
@@ -156,13 +156,15 @@ int populate_vobs(VOBU **v, const char *filename, int index)
 	
     int64_t end;
 
+	int64_t sector_offset = file_offset / 2048; // Fix
+
 	if (index==1) {
 		size = 1;
 		previous_vobus_found = 0;	
 		vobus = NULL;
 	}
 	
-	printf("Analysing VOB file %s...\n",filename);
+	printf("Analysing VOB file %s... offsets %ld %ld\n",filename, file_offset, sector_offset);
 	
 	i=previous_vobus_found;
 	
@@ -185,14 +187,26 @@ int populate_vobs(VOBU **v, const char *filename, int index)
         return -1;
 
     while (!find_vobu(in, vobus, i)) {
+
+		// adjust
+		vobus[i].start_sector += sector_offset;
+		vobus[i].start += file_offset;
+
         if (i) {
-            if (vobus[i - 1].vob_id != vobus[i].vob_id ||
+
+			vobus[i-1].end_sector += sector_offset;
+			vobus[i-1].end += file_offset;
+
+			if (vobus[i - 1].vob_id != vobus[i].vob_id ||
                 vobus[i - 1].cell_id != vobus[i].cell_id) {
                 vobus[i - 1].next = 0x3fffffff;
             } else {
                 vobus[i - 1].next = vobus[i - 1].end_sector -
                                     vobus[i - 1].start_sector;
             }
+
+			
+
             av_log(NULL, AV_LOG_DEBUG, "%d Values %d vs %d %d vs %d\n",
                    i - 1,
                    vobus[i - 1].vob_id, vobus[i].vob_id,
@@ -211,8 +225,8 @@ int populate_vobs(VOBU **v, const char *filename, int index)
     }
 
     if (i) {
-        vobus[i - 1].end        = end;
-        vobus[i - 1].end_sector = end / 2048;
+        vobus[i - 1].end        = end + file_offset;
+        vobus[i - 1].end_sector = end / 2048 + sector_offset;
         vobus[i - 1].next       = 0x3fffffff;
 
         if (i != 1)
@@ -240,12 +254,13 @@ int populate_all_vobs(VOBU **v, const char *path)
 	char title[1024];
 	int nb_vobus;
 	int total_vobus=0;
+	int64_t  file_offset = 0;
 		
 	for(int idx=1;idx<5;idx++) {
 	
 		snprintf(title, sizeof(title), "%s/VIDEO_TS/VTS_01_%d.VOB", path, idx);
 
-		if ((nb_vobus = populate_vobs(v, title, idx)) < 0)
+		if ((nb_vobus = populate_vobs(v, title, idx, file_offset)) < 0)
 		{
 			printf("... not found %d VOBUs\n", nb_vobus);
 			//exit(-1);
@@ -256,6 +271,8 @@ int populate_all_vobs(VOBU **v, const char *path)
 		}
 
 		fflush(stdout);
+
+		file_offset += 1069547520; // TMP: accum vob file sizes
 	}		
 
 	printf(". found a total of %d VOBUs\n", total_vobus);
@@ -307,7 +324,16 @@ int populate_cells(CELL **c, VOBU *vobus, int nb_vobus)
 			cell[j].duration.frame_u);	
 			
 			
-            cell[j++].last_sector = vobus[i - 1].end_sector - 1;
+            cell[j].last_sector = vobus[i - 1].end_sector - 1;
+
+			if (cell[j].last_sector <= 0)
+			{
+				printf("    [!] ### found open cells j:%u discarding \n ", j); fflush(stdout);
+				break;
+			}
+
+
+			j++;
         }
     }
 

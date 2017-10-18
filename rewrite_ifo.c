@@ -7,6 +7,8 @@
 
 #include <dvdread/dvd_reader.h>
 #include <dvdread/ifo_read.h>
+#include <dvdread/ifo_print.h>
+
 
 // https://sourcecodebrowser.com/libdvdread/4.1.3/ifo__types_8h_source.html
 
@@ -55,7 +57,8 @@ void init_IFO_REWRITE_CONTEXT(IFO_REWRITE_CONTEXT *context)
 
 
 // Options
-int force_video_ts_n_titles = 4;
+// TODO
+int force_video_ts_n_titles = 6;
 
 
 static inline void init_put_bits(PutBitContext *s, uint8_t *buffer,
@@ -152,6 +155,8 @@ IFOContext *ifo_alloc(void)
     return av_mallocz(sizeof(IFOContext));
 }
 
+
+// FIX: does not work well when expanding the IFO ...
 static int64_t ifo_size(const char *path, int idx)
 {
     char ifo_path[1024];
@@ -167,7 +172,7 @@ static int64_t ifo_size(const char *path, int idx)
 
     stat(ifo_path, &st);
 
-    return st.st_size;
+    return st.st_size * 10; // TMP
 }
 
 static int64_t menu_size(const char *path, int idx)
@@ -809,6 +814,8 @@ static void patch_pgc(pgc_t *pgc, CELL *cells, int nb_cells)
 		printf("patch_pgc:03 missing_cell=%03d\n", missing_cell);fflush(stdout);
     }
     pgc->nr_of_cells -= missing_cell;
+	
+	// TODO: rever tamanhos de coisas quando tem muitas celulas (ver se o IFOedit deixa de dar avisos)
 }
 
 static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells, ifo_handle_t *ifo)
@@ -826,7 +833,7 @@ static void patch_pgcit(pgcit_t *pgcit, CELL *cells, int nb_cells, ifo_handle_t 
 			int firstOrphanCellID = get_first_orphan_cell_id(cells, nb_cells);
 			
 			// TMP
-			firstOrphanCellID=13;
+			//firstOrphanCellID=13;
 			
 			if (firstOrphanCellID) {
 				printf("   patch_pgcit firstOrphanCellID=%u\n", firstOrphanCellID);
@@ -929,15 +936,28 @@ static void ifo_write_vobu_admap(AVIOContext *pb, int64_t offset,
 
 	printf("  >>ifo_write_vobu_admap offset=[%08X]\n", offset);
 	
+	int file_pos = avio_tell(pb);
+	printf(" (1) ifo file position=%d \n", file_pos); fflush(stdout);
+
 	
     map_size = (vobu_admap->last_byte + 1 - VOBU_ADMAP_SIZE) / sizeof(uint32_t);
 
     avio_seek(pb, offset, SEEK_SET);
 
+	file_pos = avio_tell(pb);
+	printf(" (2) ifo file position=%d \n", file_pos); fflush(stdout);
+	printf(" vobu_admap->last_byte=%d \n", vobu_admap->last_byte); fflush(stdout);
+
+
+
     avio_wb32(pb, vobu_admap->last_byte);
 
     for (i = 0; i < map_size; i++)
         avio_wb32(pb, vobu_admap->vobu_start_sectors[i]);
+
+	file_pos = avio_tell(pb);
+	printf(" (3) ifo file position=%d \n", file_pos); fflush(stdout);
+
 }
 
 static int ifo_write_vts(IFOContext *ifo)
@@ -1341,7 +1361,11 @@ static void update_values(IFOContext *ifo,
     int bup_last_sector;
     int menu_sector, title_sector, ifo_sector;
 
-    ifo_sector   = to_sector(ifo_size(dst_path, idx));
+	printf("### update_values\n"); fflush(stdout);
+
+
+    //ifo_sector   = to_sector(ifo_size(dst_path, idx));
+	ifo_sector = 42;
     menu_sector  = to_sector(menu_size(dst_path, idx));
     title_sector = to_sector(title_size(dst_path, idx));
 
@@ -1349,12 +1373,15 @@ static void update_values(IFOContext *ifo,
            "ifo %d, menu %d title %d\n",
            ifo_sector, menu_sector, title_sector);
 
+	printf("ifo %d, menu %d title %d\n",
+		ifo_sector, menu_sector, title_sector); fflush(stdout);
+
     bup_last_sector = title_set_sector(dst_path, idx);
 
     if (ifo->i->vtsi_mat) {
-        av_log(NULL, AV_LOG_INFO, "last_sector (vts) %08x %08x\n",
+		printf("last_sector (vts) %08x %08x\n",
                ifo->i->vtsi_mat->vts_last_sector,
-               ifo->i->vtsi_mat->vtsi_last_sector);
+               ifo->i->vtsi_mat->vtsi_last_sector); fflush(stdout);
         ifo->i->vtsi_mat->vts_last_sector  = bup_last_sector - 1;
         ifo->i->vtsi_mat->vtsi_last_sector = ifo_sector - 1;
         if (ifo->i->menu_c_adt) // FIXME doublecheck
@@ -1376,23 +1403,34 @@ static void update_values(IFOContext *ifo,
         ifo->i->vmgi_mat->vmgi_last_sector = ifo_sector - 1;
         ifo->i->vmgi_mat->vmgm_vobs        = ifo_sector;
     }
+
+	printf("### finished updating \n"); fflush(stdout);
 }
 
 static int ifo_write(IFOContext *ifo, int idx)
 {
     int ret, i, len;
+	int file_pos;
 
     if (idx)
         ret = ifo_write_vts(ifo);
     else
         ret = ifo_write_vgm(ifo);
 
+	file_pos=avio_tell(ifo->pb);
+	printf(" (1) ifo file position=%d \n", file_pos); fflush(stdout);
+
+	// pad the rest of the sector with zeroes
     len = to_sector(avio_tell(ifo->pb)) * DVD_BLOCK_LEN - avio_tell(ifo->pb);
 
     for (i = 0; i < len; i++)
         avio_w8(ifo->pb, 0);
 
     avio_flush(ifo->pb);
+
+	file_pos = avio_tell(ifo->pb);
+	printf(" (2) ifo file position=%d \n", file_pos); fflush(stdout);
+
 
     avio_close(ifo->pb);
 
@@ -1433,9 +1471,34 @@ static void patch_c_adt(c_adt_t *c_adt, CELL *cells, int nb_cells)
 	
     int i, map_size, missing_cell = 0;
 
+	if (nb_cells == 0)
+	{
+		printf("patch_c_adt:01C  nothing to do\n", nb_cells); fflush(stdout);
+		return;
+	}
+
     map_size = (c_adt->last_byte + 1 - C_ADT_SIZE) / sizeof(cell_adr_t);
 
 	printf("patch_c_adt:01b  map_size=%d\n",map_size);fflush(stdout);
+
+	// Resize array
+	if (map_size != nb_cells) {
+		printf("patch_c_adt resizing !\n"); fflush(stdout);
+
+		cell_adr_t *p = realloc(c_adt->cell_adr_table,sizeof(cell_adr_t) * (nb_cells));
+		if (!p) {
+			av_log(NULL, AV_LOG_ERROR, "Not enough memory\n");
+			exit(1);
+		}
+		av_log(NULL, AV_LOG_ERROR,
+			"The number of cells %d  and map_size %d mismatch\n",
+			nb_cells, map_size);
+
+		map_size = nb_cells;
+		c_adt->last_byte = (nb_cells)* sizeof(cell_adr_t) + C_ADT_SIZE - 1;
+		c_adt->cell_adr_table = p;
+	}
+
 
     for (i = 0; i < map_size; i++) {
         CELL *c = match_cell(cells, nb_cells,
@@ -1476,8 +1539,7 @@ static void patch_c_adt(c_adt_t *c_adt, CELL *cells, int nb_cells)
             av_log(NULL, AV_LOG_ERROR, "Missing %d cells, aborting.\n",
                    missing_cell);
         }
-        c_adt->last_byte = (map_size - missing_cell) * sizeof(cell_adr_t) -
-                           1 + C_ADT_SIZE;
+        
     }
 }
 
@@ -1487,6 +1549,8 @@ void patch_vobu_admap(vobu_admap_t *vobu_admap, VOBU *vobus, int nb_vobus)
 
     map_size = (vobu_admap->last_byte + 1 - VOBU_ADMAP_SIZE) / sizeof(uint32_t);
 
+
+	// Resize array
     if (map_size != nb_vobus) {
         uint32_t *p = realloc(vobu_admap->vobu_start_sectors,
                               sizeof(uint32_t) * (nb_vobus + 1));
@@ -1498,7 +1562,7 @@ void patch_vobu_admap(vobu_admap_t *vobu_admap, VOBU *vobus, int nb_vobus)
                "The number of vobus %d  and map_size %d mismatch\n",
                nb_vobus, map_size);
         map_size = nb_vobus;
-        vobu_admap->last_byte = VOBU_ADMAP_SIZE - 1 + map_size * sizeof(uint32_t);
+        vobu_admap->last_byte = VOBU_ADMAP_SIZE + (map_size) * sizeof(uint32_t) -1;
         vobu_admap->vobu_start_sectors = p;
     }
 
@@ -1549,21 +1613,40 @@ int fix_title(IFOContext *ifo, const char* path, int idx)
 
     snprintf(title, sizeof(title), "%s/VIDEO_TS/VTS_%02d_1.VOB", path, idx);
 
+
+	printf("### Checking populate_all_vobs \n"); fflush(stdout);
+	printf("    ifo=%p i=%p vts_c_adt=%p \n", ifo, ifo->i, ifo->i ? ifo->i->vts_c_adt : NULL); fflush(stdout);
+
     if ((nb_vobus = populate_all_vobs(&vobus, path)) < 0) 
         return -1;
+
+
+	printf("### Checking  populate_cells \n"); fflush(stdout);
+	printf("    ifo=%p i=%p vts_c_adt=%p \n", ifo, ifo->i, ifo->i ? ifo->i->vts_c_adt : NULL); fflush(stdout);
 
     if ((nb_cells = populate_cells(&cells, vobus, nb_vobus)) < 0)
         return -1;
 
+	printf("### Checking vts_c_adt \n"); fflush(stdout);
+	printf("    ifo=%p i=%p vts_c_adt=%p \n",ifo, ifo->i, ifo->i ? ifo->i->vts_c_adt : NULL); fflush(stdout);
+
     if (ifo->i->vts_c_adt)
         patch_c_adt(ifo->i->vts_c_adt, cells, nb_cells);
+
+	printf("### Checking vts_vobu_admap \n"); fflush(stdout);
 
     if (ifo->i->vts_vobu_admap)
         patch_vobu_admap(ifo->i->vts_vobu_admap, vobus, nb_vobus);
 
+	printf("### Checking patch_pgcit \n"); fflush(stdout);
+
     patch_pgcit(ifo->i->vts_pgcit, cells, nb_cells, ifo->i);
-    
+  
+	printf("### Checking patch_title_video_attrs \n"); fflush(stdout);
+
     patch_title_video_attrs(ifo);
+
+	printf("### ret \n"); fflush(stdout);
 
 	
     return 0;
@@ -1615,7 +1698,7 @@ int fix_menu(IFOContext *ifo, const char *path, int idx)
         
 	printf("fix_menu:03\n");fflush(stdout);
 
-    if ((nb_vobus = populate_vobs(&vobus, menu, 1)) < 0)
+    if ((nb_vobus = populate_vobs(&vobus, menu, 1, 0)) < 0)
         return -1;
 
     if ((nb_cells = populate_cells(&cells, vobus, nb_vobus)) < 0)
@@ -1644,7 +1727,7 @@ int main(int argc, char **argv)
 
     init_IFO_REWRITE_CONTEXT(&ifoRewriteContext);
 	
-	printf("rewrite_ifo...\n");fflush(stdout);
+	printf("### [dvd_vr_rewrite_ifo] ...\n");fflush(stdout);
 	
 	printf("1\n");fflush(stdout);
 	
@@ -1678,8 +1761,16 @@ int main(int argc, char **argv)
 	printf("4b ifo->ifo_size=%d\n", ifo->ifo_size);fflush(stdout);
 
     ifo->i = ifoOpen(dvd, idx);
+
+	ifo_print(dvd, idx);
 	
 	printf("4b ifo->i=%p\n", ifo->i);fflush(stdout);
+
+	if (ifo->i == NULL) {
+		printf("Fatal error: source IFO reading failed\n"); fflush(stdout);
+		return -1;
+	}
+
 
     if (idx) {
 		
@@ -1697,6 +1788,8 @@ int main(int argc, char **argv)
 
 	printf("7\n");fflush(stdout);
 		
+	update_values(ifo, dst_path, idx);
+
 	
     ret = ifo_write(ifo, idx);
     if (ret < 0)
@@ -1720,5 +1813,21 @@ int main(int argc, char **argv)
 
 	printf("11\n");fflush(stdout);
 		
-    return ifo_write(ifo, idx);
+    ifo_write(ifo, idx);
+
+
+	printf("12 ### Ending \n"); fflush(stdout);
+	fprintf(stderr, "12 ### Ending \n"); fflush(stderr);
+
+	dvd_reader_t *dvd_check= DVDOpen(dst_path);;
+	ifo_print(dvd_check, idx);
+
+	printf("13 ### Ending - dumping VIDEO_TS.IFO \n"); fflush(stdout);
+	fprintf(stderr, "13 ### Ending  - dumping VIDEO_TS.IFO\n"); fflush(stderr);
+	ifo_print(dvd_check, 0);
+
+
+	fflush(stdout);
+	fflush(stderr);
+
 }
